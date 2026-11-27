@@ -281,7 +281,7 @@
                                                         <input type="text" class="form-control"
                                                                name="{{$keyName}}"
                                                                placeholder="{{ucwords(str_replace('_',' ',$keyName))}}"
-                                                               value="{{ showDemoModeInputValue(value: $value) }}"  data-required-msg="{{ translate($keyName).translate('_field_is_required')}}" required>
+                                                               value="{{ showDemoModeInputValue(value: app(\App\Services\Settings\MaskedCredentials::class)->shown(key: $keyName, value: $value)) }}"  data-required-msg="{{ translate($keyName).translate('_field_is_required')}}" required>
                                                     </div>
                                                 @endif
                                             @endforeach

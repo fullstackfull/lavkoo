@@ -76,6 +76,32 @@ return [
         'sensitive_actions' => [
             'recorded' => filter_var(env('GCC_ADMIN_SENSITIVE_ACTION_AUDIT', false), FILTER_VALIDATE_BOOLEAN),
         ],
+
+        /*
+        | Showing a stored credential back to the panel as a MASK rather than as itself (G-16).
+        |
+        | The payment-gateway and SMS screens render every value of `addon_settings.live_values` into an input, so on a live installation
+        | the API keys, secrets and auth tokens of every configured gateway are in the HTML of one panel page: in the page source, in a
+        | screenshot, in whatever the browser cached, and readable by any employee whose role reaches the third-party module.
+        |
+        | Off by default: every field shows exactly what it shows today, and the save path hands the submitted set straight back, key for
+        | key. With it on, a value whose key name says it is a credential is shown as asterisks, and a field that comes BACK as those
+        | asterisks is put back from the stored row -- which is the half that makes the mask safe, because both screens write the whole
+        | submitted set into `live_values` and `test_values`, so masking alone would replace every secret the first time anybody pressed
+        | Save. A credential the row does not hold is restored as empty and never as the mask.
+        |
+        | What stays open: the values are still PLAINTEXT in `addon_settings`. Encrypting them at rest is the other half of G-16 and is a
+        | migration with an owner's decision in it, not a switch -- the column holds live credentials on every existing installation, and a
+        | rewrite that goes wrong, or an `APP_KEY` that later changes, locks an operator out of their own payment gateway. The per-company
+        | accounts of `payment_gateway_accounts` already store ciphertext only (App\Services\Payments\GatewayAccountSecrets).
+        |
+        | The rule for what is a credential is a name rule and it is deliberately the permissive way round
+        | (App\Services\Settings\MaskedCredentials): an unknown gateway's secret is masked, and only a name that is plainly not a secret
+        | -- a gateway title, a publishable key, an identifier a support call quotes -- is shown.
+        */
+        'credentials' => [
+            'masked' => filter_var(env('GCC_ADMIN_CREDENTIALS_MASKED', false), FILTER_VALIDATE_BOOLEAN),
+        ],
     ],
 
     /*
