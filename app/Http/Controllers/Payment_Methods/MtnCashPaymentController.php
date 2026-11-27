@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Payment_Methods;
 
 use App\Http\Controllers\Controller;
+use App\Http\Middleware\ScopeGatewaySettingsToStaffCountries;
 use App\Models\MtnCashTerminal;
 use App\Traits\Processor;
 use Illuminate\Http\Request;
@@ -37,6 +38,13 @@ public function __construct()
             $this->configValues = json_decode($values, true) ?? [];
         }
     }
+
+    // D2-08: the five ADMINISTRATIVE actions only -- the terminal keys, the activation and the connection tests. A gateway's credentials
+    // are one row for the whole installation, so an employee the country scopes restrict is answered like for a page that does not exist.
+    // The customer-facing and point-of-sale actions of this controller are somebody paying and are deliberately not listed. Inert while
+    // `gcc.staff.gateway_settings.scoped` is off.
+    $this->middleware(ScopeGatewaySettingsToStaffCountries::class)
+        ->only(['generateKeys', 'activationPrecheck', 'activate', 'authTest', 'importOriginalKeys']);
 }
 
 public function payment(Request $request)

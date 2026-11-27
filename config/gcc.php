@@ -52,6 +52,30 @@ return [
             'scoped' => filter_var(env('GCC_STAFF_MONEY_ACTIONS_SCOPED', false), FILTER_VALIDATE_BOOLEAN),
         ],
 
+        /*
+        | Putting the payment-GATEWAY SETTINGS screens inside the employee's country scope (D2-08).
+        |
+        | Off by default: the shared gateway page, the offline payment methods and the MTN Cash terminal actions are reached on the
+        | strength of the `3rd_party_setup` module alone, exactly as today -- every action's rule reads `none` and not one extra query is
+        | made.
+        |
+        | With it on, an employee the country scopes restrict is answered like for a page that does not exist. Not narrowed: REFUSED,
+        | because a gateway's configuration is one row of `addon_settings` for the whole installation -- its secret key, its integration
+        | id, its HMAC, its live-or-test mode -- and `payment_gateway_accounts` does not replace it while that feature ships off with an
+        | empty table and one gateway in its list. So a write here is a write to every market's merchant account at once, and its
+        | gentlest form (pointing a gateway at the sandbox, switching it off) stops the shop taking money in countries that employee has
+        | no standing in. A read is no better: the screens print the secret key and the webhook secret.
+        |
+        | It deliberately does NOT answer the owner's open question of whether a gateway belongs to a market at all (G1-13). A refusal
+        | needs no answer to that; a narrowing would. The same refusal already applies to the MyFatoorah settings screen, decided in
+        | slice 6 (`StaffIntegrationRoutes`), and to a hand-made wallet credit (`StaffOrderRoutes`).
+        |
+        | An employee the scopes do not restrict is unaffected either way, which is every employee while `country_scopes` is off.
+        */
+        'gateway_settings' => [
+            'scoped' => filter_var(env('GCC_STAFF_GATEWAY_SETTINGS_SCOPED', false), FILTER_VALIDATE_BOOLEAN),
+        ],
+
         'step_up' => [
             'enabled' => filter_var(env('GCC_ADMIN_STEP_UP', false), FILTER_VALIDATE_BOOLEAN),
             'minutes' => (int) env('GCC_ADMIN_STEP_UP_MINUTES', 10),

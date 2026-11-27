@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Admin\Payment;
 
 use App\Contracts\Repositories\OfflinePaymentMethodRepositoryInterface;
 use App\Http\Controllers\BaseController;
+use App\Http\Middleware\ScopeGatewaySettingsToStaffCountries;
 use App\Http\Requests\Admin\OfflinePaymentMethodRequest;
 use App\Services\OfflinePaymentMethodService;
 use Devrabiul\ToastMagic\Facades\ToastMagic;
@@ -25,6 +26,10 @@ class OfflinePaymentMethodController extends BaseController
         private readonly OfflinePaymentMethodService             $offlinePaymentMethodService,
     )
     {
+        // D2-08: a gateway's configuration is ONE row for the whole installation, so reading or rewriting it is not an act of one
+        // market. An employee the country scopes restrict is answered like for a page that does not exist rather than being handed the
+        // secret key every market takes card payments with. Inert while `gcc.staff.gateway_settings.scoped` is off.
+        $this->middleware(ScopeGatewaySettingsToStaffCountries::class);
     }
 
     /**
