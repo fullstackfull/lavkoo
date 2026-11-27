@@ -139,6 +139,30 @@ class StorefrontOrderHistoryTest extends ApiAddressTestCase
         $this->assertEqualsCanonicalizing(array_values($orders), $listed, 'with storefronts off the history is every order, as it has always been');
     }
 
+    /**
+     * The dormancy case the first version of this file did not have, and the one that matters most.
+     *
+     * `test_with_storefronts_off_a_picked_market_narrows_nothing` above proves the QUERY is not narrowed while storefronts are off. It
+     * does not prove the ANSWER is unchanged, and it was not: `nameOn()` wrote `sold_in_market`, `sold_in_currency` and
+     * `selling_company` onto every order whatever the switch said, so a platform with one market and no storefronts began answering the
+     * customer app three keys it had never sent. `SaudiGoldenResponsesTest` caught it against its recorded golden answer.
+     *
+     * So this asserts the shape of the answer, not just its contents: with storefronts off the three keys are ABSENT, not null. A key
+     * present and empty is a different answer from a key that was never there, and an app reading `order['sold_in_market'] ?? 'SA'`
+     * behaves differently for each.
+     */
+    public function test_with_storefronts_off_the_answer_carries_none_of_the_three_keys(): void
+    {
+        [$customer] = $this->placeOrdersIn('SA');
+        config(['gcc.storefronts.enabled' => false]);
+
+        $order = $this->historyOf($customer)->json('orders.0');
+
+        foreach ([OrderMarketReading::MARKET, OrderMarketReading::CURRENCY, OrderMarketReading::COMPANY] as $key) {
+            $this->assertArrayNotHasKey($key, $order, 'the dormant answer must be the one the app already reads, key for key');
+        }
+    }
+
     public function test_the_history_of_one_customer_holds_the_orders_of_every_market(): void
     {
         [$customer, $orders] = $this->placeOrdersIn('SA', 'KW', 'QA');
