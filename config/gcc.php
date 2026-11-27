@@ -149,6 +149,21 @@ return [
     'storefronts' => [
         'enabled' => filter_var(env('GCC_STOREFRONTS_ENABLED', false), FILTER_VALIDATE_BOOLEAN),
 
+        // What turning `enabled` OFF AGAIN means once a second market's products are in the table (M1-18).
+        //
+        // Off by default, and off is today's behaviour in every detail: `enabled` off narrows nothing, which is the right answer for the
+        // platform of today -- one market, one country's products, no column to narrow by -- and the WRONG answer after the switch has been
+        // used. A second market's rows are then in `products`, nothing is narrowed any more, and the visitor of the one remaining
+        // storefront is shown them. So turning the switch off was never a way of stopping a market; it was a way of merging six markets
+        // into one catalogue, which is why the runbook had to say "deactivate the country instead, never turn the flag off". A switch
+        // somebody is told not to use is not a switch, and StorefrontKillSwitchTest pinned exactly that.
+        //
+        // With it on, off means ONE MARKET: a storefront request falls back to `default_country`'s catalogue and the rows of the markets
+        // that were added stay out of it until `enabled` is turned on again. Nothing is deleted. The panels, the seller APIs, the
+        // webhooks, the platform admin API and the queues are cross-country by design and are answered exactly as before. It is inert
+        // before the products migration has run, because there is then no column and so no second market's row to keep out.
+        'off_is_one_market' => filter_var(env('GCC_STOREFRONTS_OFF_IS_ONE_MARKET', false), FILTER_VALIDATE_BOOLEAN),
+
         'default_country' => env('GCC_DEFAULT_COUNTRY', 'SA'),
 
         // `timezone` is the market's own clock, for the times an operator of that market TYPES (F-08). `config/app.php` sets one zone for
@@ -1103,6 +1118,53 @@ return [
         'canonical_phone' => [
             'checked' => filter_var(env('GCC_CANONICAL_PHONE', false), FILTER_VALIDATE_BOOLEAN),
         ],
+
+        // A2-06, M2-04: whether a customer's e-mail address is read as ONE identity across its spellings. Off by default, and off is the
+        // platform of today: `unique:users` compares the string that was typed through the SERVER'S OWN collation, so which two spellings
+        // are one account is decided by the engine and not by the platform. Two duplicates survive that, both reached through the real
+        // registration endpoint. The domain's TRAILING DOT: `layla@example.test.` names the same host (the dot is the root label) and is a
+        // different string on every engine -- measured, MariaDB 10.11 answers `'layla@example.test.' = 'layla@example.test'` false -- so it
+        // is a second account everywhere. And CAPITALS wherever the collation is case-sensitive: MariaDB with `utf8mb4_general_ci` folds
+        // them, SQLite does not, so the test suite and a live server disagree about who one customer is. Surrounding whitespace is NOT one
+        // of them: `TrimStrings` is in the global middleware stack, so an address arrives trimmed.
+        //
+        // With it on, a creation path asks `App\Services\Identity\CustomerEmail` whether an account already holds the same ADDRESS --
+        // trimmed, lower-cased, with a trailing dot off the domain -- and refuses a second one in the answer shape that path already
+        // refuses a taken address with. A dot inside the local part and a `+tag` after it are left as typed: those are one mailbox at some
+        // providers and two at others, and folding them would merge accounts the platform has always kept apart. The key takes no market,
+        // so one customer is known by the same address in all six and no country's rule is the default.
+        //
+        // It ships off for the same reason the phone does: the duplicates it would refuse may already EXIST, and whether `users` gets a
+        // canonical column or a case-insensitive key is the owner's decision once the live duplicates have been counted (A2-01's blocker).
+        // Nothing here writes a column or a key, so turning it on is reversible and turning it off restores today's behaviour exactly.
+        'canonical_email' => [
+            'checked' => filter_var(env('GCC_CANONICAL_EMAIL', false), FILTER_VALIDATE_BOOLEAN),
+        ],
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | What a TEST RUN may leave behind (M2, the language-file guard)
+    |--------------------------------------------------------------------------
+    |
+    | `language_file_writes_are_failures`: whether a test that let translate() append a key to a tracked language file is FAILED for it.
+    |
+    | Off by default, and off changes nothing about a run: the files are put back after every test either way (Tests\TestCase does it
+    | unconditionally, because a gate that depends on a switch is not a gate), and a write is simply put back in silence. With it on, the
+    | test that wrote is failed and the message names the file and the keys, which is how the offending test is found among the suite's
+    | thousands -- the reason to have the switch at all.
+    |
+    | What it is FOR. translate() appends a humanised placeholder for any key the language files do not know, so a test that renders such a
+    | page used to leave the key in resources/lang. The cost is not the dirty tree: it is that a key a real feature added becomes
+    | indistinguishable from an artifact of a test run, in the diff and in the admin's translation screen alike. The CI step that refuses a
+    | run which changed resources/lang is what holds the line; this switch is what tells you WHICH test to fix.
+    |
+    | It is read in a test tear-down and nowhere else, so it has no meaning on a live site.
+    |
+    */
+
+    'tests' => [
+        'language_file_writes_are_failures' => filter_var(env('GCC_TEST_LANGUAGE_FILE_WRITES_ARE_FAILURES', false), FILTER_VALIDATE_BOOLEAN),
     ],
 
 ];

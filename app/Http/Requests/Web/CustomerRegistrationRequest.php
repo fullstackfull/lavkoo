@@ -8,6 +8,7 @@ use Devrabiul\ToastMagic\Facades\ToastMagic;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\Validator;
 use Illuminate\Support\Facades\Session;
+use App\Rules\OneAccountPerEmail;
 use App\Rules\OneAccountPerPhone;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Http\Exceptions\HttpResponseException;
@@ -27,7 +28,7 @@ class CustomerRegistrationRequest extends FormRequest
     {
         return [
             'f_name' => 'required',
-            'email' => 'required|email|unique:users',
+            'email' => ['required', 'email', 'unique:users', new OneAccountPerEmail()],
             'phone' => ['required', 'unique:users', 'max:20', new OneAccountPerPhone()],
             'password' => 'required|same:con_password',
 

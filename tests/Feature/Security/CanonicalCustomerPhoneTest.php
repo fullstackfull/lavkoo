@@ -72,6 +72,17 @@ class CanonicalCustomerPhoneTest extends TestCase
         ],
     ];
 
+    /**
+     * The split the e-mail half of this card must match ({@see CanonicalCustomerEmailTest}), so one identity is not guarded in two
+     * different sets of places.
+     *
+     * @return array{guarded: array<string, string|null>, declared: array<string, string>}
+     */
+    public static function creationPaths(): array
+    {
+        return self::CREATION_PATHS;
+    }
+
     protected function setUp(): void
     {
         parent::setUp();

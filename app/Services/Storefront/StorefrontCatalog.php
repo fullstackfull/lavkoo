@@ -308,20 +308,60 @@ final class StorefrontCatalog
     private static function context(): ?StorefrontContext
     {
         if (!config('gcc.storefronts.enabled')) {
-            return null;
+            return self::contextOfTheMarketLeftBehind();
         }
 
         return app()->bound(StorefrontContext::class) ? StorefrontContext::current() : self::contextOfUnboundRequest();
     }
 
-    private static function contextOfUnboundRequest(): ?StorefrontContext
+    /**
+     * What a storefront request is served once the storefront switch has been turned OFF AGAIN, with another market's products already in
+     * the table (M1-18): the DEFAULT market's catalogue, and not every market's.
+     *
+     * Off used to mean "narrow nothing", which is the right answer for the platform of today -- one market, one country's products, no
+     * column to narrow by. It is the wrong answer AFTER the switch has been used: a second market's rows are in `products`, nothing is
+     * narrowed any more, and a visitor of the one remaining storefront is shown them. So turning the switch off was not a way of stopping
+     * a market; it was a way of merging six into one, and the runbook had to say "deactivate the country instead, never turn the flag off".
+     * A switch somebody is told not to use is not a switch.
+     *
+     * Off now means ONE MARKET, which is what a kill switch for this feature means: the catalogue falls back to the market the platform
+     * started as, and the rows of the markets that were added stay out of it until the switch is turned on again. Nothing is deleted and
+     * nothing is hidden from anybody who is meant to see it -- the panels, the seller APIs, the webhooks, the platform admin API and the
+     * queues are cross-country by design and are answered exactly as before, by the same two rules this class already applies to them.
+     *
+     * It ships off (`gcc.storefronts.off_is_one_market`), and off is today's behaviour in every detail. It is also inert until there is
+     * something to narrow: before the migration there is no column, so there is no second market's row to keep out and no query changes.
+     *
+     * The country is the default market's, whichever market the request asked for, so this branch can only ever narrow and never widen.
+     */
+    private static function contextOfTheMarketLeftBehind(): ?StorefrontContext
     {
-        $request = request();
-        if (app()->runningInConsole() || $request->is(...self::CROSS_COUNTRY_PATHS)) {
+        if (!config('gcc.storefronts.off_is_one_market') || !self::columnReady() || !self::isAStorefrontRequest()) {
             return null;
         }
 
-        return StorefrontResolver::fromConfig()->contextForRequest(request: $request);
+        $resolver = StorefrontResolver::fromConfig();
+
+        return $resolver->contextOfRecordedCountry($resolver->defaultCountry());
+    }
+
+    private static function contextOfUnboundRequest(): ?StorefrontContext
+    {
+        if (!self::isAStorefrontRequest()) {
+            return null;
+        }
+
+        return StorefrontResolver::fromConfig()->contextForRequest(request: request());
+    }
+
+    /**
+     * Whether this request is storefront traffic at all. One copy of the rule, because it decides both what a request with no bound
+     * context is narrowed to and what the market left behind narrows ({@see CROSS_COUNTRY_PATHS}): two copies would let one of the two
+     * answers drift, and the drift would be a panel narrowed to one market or a storefront not narrowed at all.
+     */
+    private static function isAStorefrontRequest(): bool
+    {
+        return !app()->runningInConsole() && !request()->is(...self::CROSS_COUNTRY_PATHS);
     }
 
     private static function unboundKey(string $key): string
