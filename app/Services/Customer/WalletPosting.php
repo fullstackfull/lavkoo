@@ -125,7 +125,8 @@ final readonly class WalletPosting
     {
         return new self(
             transactionType: $transactionType,
-            credit: (float) currencyConverter(amount: $credit),
+            // One unit for the credit, whichever of the five writers is asked (E-16). Off as it ships: the amount is handed straight back.
+            credit: WalletMinorUnit::credited(currencyConverter(amount: $credit)),
             debit: (float) currencyConverter(amount: $debit),
             bonus: $bonus,
             reference: $reference,

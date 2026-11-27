@@ -802,6 +802,25 @@ return [
         // writers of the one balance and the top-up's double conversion (open financial decision 1); and the points, refund and referral
         // CREDITS (LF-1, LF-2, RF-10).
         'debit_in_the_markets_minor_unit' => filter_var(env('GCC_WALLET_DEBIT_IN_THE_MARKETS_MINOR_UNIT', false), FILTER_VALIDATE_BOOLEAN),
+
+        // The same question on the CREDIT side (E-16). There are FIVE writers of a wallet balance -- CustomerWalletWriter,
+        // CustomerTrait::createWalletTransaction, CustomerManager::create_wallet_transaction, OrderManager::createWalletTransaction and
+        // WalletTransactionRepository::addWalletTransaction -- and each computed its credit where it stood, unrounded, so a points
+        // conversion, a refund and a referral reward of one amount reached the ledger as three amounts depending on the path, and in
+        // Kuwait, Bahrain and Oman a credit could carry more places than the currency has coins for.
+        //
+        // OFF as it ships, and off is stronger here than on the debit side: an amount is handed straight back, NOT rounded at two places,
+        // because a credit has never been rounded at all and rounding it "by default" would move money on every path that reaches a
+        // writer. Not one query is made while it is off. With it on, all five writers round their credit half up through the one helper
+        // (App\Services\Customer\WalletMinorUnit::credited) at the places of the currency the storefront being served sells in, and
+        // every other request -- a panel, a queue worker, a console command, and every request while the storefronts are off -- rounds at
+        // two, which is Saudi Arabia, the United Arab Emirates and Qatar whatever this says.
+        //
+        // What it does NOT settle, each because it is the owner's: WHAT a point is worth, which is still two formulas and is LF-1 and LF-2
+        // of open financial decision 1 -- this rounds whatever they answer; the add-fund BONUS, which is added to the balance beside the
+        // credit and keeps its own double conversion; and the DEBIT of any writer that does not come through WalletOrderDebit, the
+        // point-of-sale tills among them (half of D18).
+        'credits_in_the_markets_minor_unit' => filter_var(env('GCC_WALLET_CREDITS_IN_THE_MARKETS_MINOR_UNIT', false), FILTER_VALIDATE_BOOLEAN),
     ],
 
     'refunds' => [

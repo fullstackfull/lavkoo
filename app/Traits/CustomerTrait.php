@@ -11,6 +11,7 @@ use Illuminate\Support\Carbon;
 use App\Utils\Helpers;
 use App\Utils\Convert;
 use App\Services\Customer\CustomerBalanceLock;
+use App\Services\Customer\WalletMinorUnit;
 use App\Services\Loyalty\WhatAPointIsWorth;
 use App\Services\Wallet\WalletOverdraft;
 use App\Services\Storefront\LedgerAttribution;
@@ -75,7 +76,8 @@ trait CustomerTrait
                 $debit = $amount;
             }
 
-            $creditAmount = currencyConverter($credit);
+            // One unit for the credit, whichever writer is asked (E-16). Off as it ships: the amount is handed straight back.
+            $creditAmount = WalletMinorUnit::credited(currencyConverter($credit));
             $debitAmount = currencyConverter($debit);
             if (WalletOverdraft::refuses($currentBalance, $debitAmount)) {
                 return false;

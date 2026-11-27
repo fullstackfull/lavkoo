@@ -17,6 +17,7 @@ use App\Models\ReferralCustomer;
 use App\Models\WalletTransaction;
 use App\Models\LoyaltyPointTransaction;
 use App\Services\Customer\CustomerBalanceLock;
+use App\Services\Customer\WalletMinorUnit;
 use App\Services\Storefront\LedgerAttribution;
 use App\Services\Storefront\LedgerOrigin;
 use App\Services\Wallet\WalletOverdraft;
@@ -88,7 +89,9 @@ class CustomerManager
             } else if ($transaction_type == 'order_place') {
                 $debit = $amount;
             }
-            $credit_amount = $amountInUsd ? $credit : Convert::usd($credit);
+            // One unit for the credit, whichever writer is asked (E-16): WalletMinorUnit is the one helper all five of them round
+            // through, and it hands the amount straight back while its switch is off, which is how it ships.
+            $credit_amount = WalletMinorUnit::credited($amountInUsd ? $credit : Convert::usd($credit));
             $debit_amount = $amountInUsd ? $debit : Convert::usd($debit);
             $balance_before = $amountInUsd ? round((float) $current_balance, 2) : $current_balance;
             if (WalletOverdraft::refuses($balance_before, $debit_amount)) {

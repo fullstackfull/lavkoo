@@ -2,8 +2,6 @@
 
 namespace App\Services\Customer;
 
-use App\Services\Storefront\StorefrontCurrency;
-
 /**
  * What a wallet order debits: its stored amount rounded half up, once, at the unit a wallet debit is counted in. The balance check and the
  * debit both use that unit, so the wallet is never checked against, or debited by, a different amount than the order's (E-16).
@@ -26,7 +24,10 @@ use App\Services\Storefront\StorefrontCurrency;
  *    one order amount is still debited differently depending on the till. Whether the tills follow the checkout's rule is half of D18;
  *  - the four writers of the one balance still apply their own conversions, and the gateway top-up's double conversion loses money at a
  *    `decimal_point_settings` of 0 (measured in `ATopUpCreditsWhatWasPaidTest`). What a stored unit is worth is open financial decision 1;
- *  - the points-to-wallet, refund and referral CREDITS are computed where they are computed. LF-1, LF-2 and RF-10 are pinned, not settled.
+ *  - WHAT a point is worth, and what a stored unit is worth, are still two formulas and a double conversion: LF-1, LF-2 and RF-10 are
+ *    pinned, not settled. The UNIT the three credits are counted in is no longer each writer's own -- {@see WalletMinorUnit::credited()}
+ *    is the one helper all five writers of a wallet balance round their credit through, and `placesUnder()` below is this class's own
+ *    arithmetic, moved there so the credit side and the debit side cannot disagree about a market's smallest coin.
  *
  * Naming them here rather than leaving them implicit is the point: a class that says it is "the one unit" while three money paths do not
  * come through it would be the most expensive kind of comment.
@@ -37,7 +38,7 @@ final class WalletOrderDebit
     public const MARKET_MINOR_UNIT_SWITCH = 'gcc.wallet.debit_in_the_markets_minor_unit';
 
     /** What a wallet debit has always been rounded at, and what the riyal, the dirham, the dollar and the Qatari riyal have. */
-    public const TWO_PLACES = 2;
+    public const TWO_PLACES = WalletMinorUnit::TWO_PLACES;
 
     private function __construct(
         private readonly float $usdAmount,
@@ -61,14 +62,7 @@ final class WalletOrderDebit
      */
     public static function places(): int
     {
-        if (!filter_var(config(self::MARKET_MINOR_UNIT_SWITCH, false), FILTER_VALIDATE_BOOLEAN)) {
-            return self::TWO_PLACES;
-        }
-
-        $currency = app(StorefrontCurrency::class);
-        $code = $currency->currencyCodeInForce();
-
-        return $code === null ? self::TWO_PLACES : $currency->decimalsOf($code);
+        return WalletMinorUnit::placesUnder(self::MARKET_MINOR_UNIT_SWITCH);
     }
 
     public function amountInUsd(): float
