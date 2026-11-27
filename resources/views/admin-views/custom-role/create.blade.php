@@ -165,6 +165,7 @@
                             </div>
                         @endforeach
                     </div>
+                    <x-k.step-up id="role-add" />
                     <div class="d-flex justify-content-end ">
                         <button type="submit" class="btn btn-primary">
                             {{ translate('submit') }}

@@ -57,6 +57,21 @@ class AdminStepUpTest extends TestCase
 
     private const WRONG_PASSWORD = 'Not#Their1Password';
 
+    /**
+     * Every screen of staff management and of the role form that shows a form the guard protects, against the path that form posts to.
+     *
+     * The proof travels WITH the action ({@see AdminStepUp}), so the field belongs inside the form whose button it protects and a form on a
+     * step-up route without it is an action that is always refused. The status switches of the employee list and of the role list, and the
+     * role list's delete, are deliberately NOT here: they are driven by the panel's JavaScript from a confirmation dialog, which has
+     * nowhere to type a password, and giving them one is a change to that dialog rather than to a Blade form.
+     */
+    private const FORMS = [
+        '/admin/employee/add' => 'employee/add',
+        '/admin/employee/update/' . self::EMPLOYEE => 'employee/update/' . self::EMPLOYEE,
+        '/admin/custom-role/add' => 'custom-role/add',
+        '/admin/custom-role/update/' . self::ORDINARY_ROLE => 'custom-role/update/' . self::ORDINARY_ROLE,
+    ];
+
     protected function setUp(): void
     {
         parent::setUp();
@@ -128,6 +143,24 @@ class AdminStepUpTest extends TestCase
             ->assertRedirect();
 
         $this->assertNull(session(AdminStepUp::SESSION_KEY), 'a switched-off guard reads nothing and writes nothing');
+    }
+
+    /**
+     * Off, the four forms are the forms they are today: `<x-k.step-up />` renders nothing, so neither the field nor its label reaches a
+     * screen nobody asked to change -- a password box on a screen that does not need one is how an operator learns to ignore one.
+     */
+    public function test_with_the_switch_off_no_staff_or_role_form_shows_a_password_field(): void
+    {
+        $this->assertFalse(app(AdminStepUp::class)->isRequired(), 'the step-up switch ships off');
+
+        foreach (self::FORMS as $screen => $action) {
+            $page = $this->screen($screen);
+            $fields = $this->fieldNamesOfTheFormPosting(page: $page, action: $action);
+
+            $this->assertContains('name', $fields, "{$screen} really rendered its own form");
+            $this->assertNotContains(AdminStepUp::PASSWORD_FIELD, $fields, "{$screen} must be the screen it is today");
+            $this->assertStringNotContainsString(AdminStepUp::PASSWORD_FIELD, $page, 'nor may the field appear anywhere else on it');
+        }
     }
 
     // ---- on: refused without the password, and the twin that proves it is the guard ---------------------------------------
@@ -334,6 +367,68 @@ class AdminStepUpTest extends TestCase
         $asked->get('/admin/custom-role/update/' . self::ORDINARY_ROLE)->assertOk();
     }
 
+    // ---- the screens, which is where the proof is typed --------------------------------------------------------------------
+
+    /** On, every form the guard protects carries the field the guard reads, inside the form whose button it protects. */
+    public function test_with_the_switch_on_each_staff_and_role_form_carries_the_field(): void
+    {
+        $this->switchItOn();
+
+        foreach (self::FORMS as $screen => $action) {
+            $this->assertContains(
+                AdminStepUp::PASSWORD_FIELD,
+                $this->fieldNamesOfTheFormPosting(page: $this->screen($screen), action: $action),
+                "the form of {$screen} carries the field its own middleware reads, or the action is always refused",
+            );
+        }
+    }
+
+    /**
+     * Staff management end to end: the screen is rendered, the field it carries is read off it, and only then is the action driven -- so a
+     * screen that lost the field fails before any password is sent. Each refusal has its unrestricted twin, because a refusal on its own
+     * cannot tell a guard from a broken screen or a rejected form.
+     */
+    public function test_the_field_the_employee_screens_carry_is_what_takes_those_actions_through(): void
+    {
+        $this->switchItOn();
+        $asked = $this->signedInAsTheAsker();
+
+        $field = $this->theConfirmationFieldOf(screen: '/admin/employee/add', action: 'employee/add');
+        $asked->post('/admin/employee/add', $this->aNewEmployeeForm())->assertRedirect();
+        $this->assertFalse(DB::table('admins')->where('email', 'new@example.test')->exists(), 'an unconfirmed add writes nothing');
+        $asked->post('/admin/employee/add', $this->aNewEmployeeForm() + [$field => self::OWN_PASSWORD])->assertRedirect();
+        $this->assertTrue(DB::table('admins')->where('email', 'new@example.test')->exists(), 'the field the screen carries adds the employee');
+
+        $this->theProofGoesStale();
+
+        $field = $this->theConfirmationFieldOf(screen: '/admin/employee/update/' . self::EMPLOYEE, action: 'employee/update/' . self::EMPLOYEE);
+        $asked->post('/admin/employee/update/' . self::EMPLOYEE, $this->anEmployeeForm())->assertRedirect();
+        $this->assertNotSame('moved@example.test', $this->employee()->email, 'an unconfirmed employee form writes nothing');
+        $asked->post('/admin/employee/update/' . self::EMPLOYEE, $this->anEmployeeForm() + [$field => self::OWN_PASSWORD])->assertRedirect();
+        $this->assertSame('moved@example.test', $this->employee()->email, 'the field the screen carries rewrites the employee');
+    }
+
+    /** The role form end to end, read off its own screens, each refusal with its unrestricted twin. */
+    public function test_the_field_the_role_screens_carry_is_what_takes_those_actions_through(): void
+    {
+        $this->switchItOn();
+        $asked = $this->signedInAsTheAsker();
+
+        $field = $this->theConfirmationFieldOf(screen: '/admin/custom-role/add', action: 'custom-role/add');
+        $asked->post('/admin/custom-role/add', ['name' => 'A new role', 'modules' => ['people']])->assertRedirect();
+        $this->assertFalse(DB::table('admin_roles')->where('name', 'A new role')->exists(), 'an unconfirmed add writes nothing');
+        $asked->post('/admin/custom-role/add', ['name' => 'A new role', 'modules' => ['people'], $field => self::OWN_PASSWORD])->assertRedirect();
+        $this->assertTrue(DB::table('admin_roles')->where('name', 'A new role')->exists(), 'the field the screen carries adds the role');
+
+        $this->theProofGoesStale();
+
+        $field = $this->theConfirmationFieldOf(screen: '/admin/custom-role/update/' . self::ORDINARY_ROLE, action: 'custom-role/update/' . self::ORDINARY_ROLE);
+        $asked->post('/admin/custom-role/update/' . self::ORDINARY_ROLE, ['name' => 'Renamed', 'modules' => ['people']])->assertRedirect();
+        $this->assertNotSame('Renamed', $this->role()->name, 'an unconfirmed role form writes nothing');
+        $asked->post('/admin/custom-role/update/' . self::ORDINARY_ROLE, ['name' => 'Renamed', 'modules' => ['people'], $field => self::OWN_PASSWORD])->assertRedirect();
+        $this->assertSame('Renamed', $this->role()->name, 'the field the screen carries rewrites the role');
+    }
+
     /**
      * The guard is a route declaration, so the set of routes carrying it is the feature. Written out rather than matched by prefix, so a
      * write route that loses it, or a read route that gains it, fails here.
@@ -396,6 +491,59 @@ class AdminStepUpTest extends TestCase
     private function asAjax(): array
     {
         return ['X-Requested-With' => 'XMLHttpRequest'];
+    }
+
+    /** The field a screen really carries, read off the rendered form: an action is driven with it only once the screen has been proved. */
+    private function theConfirmationFieldOf(string $screen, string $action): string
+    {
+        $this->assertContains(
+            AdminStepUp::PASSWORD_FIELD,
+            $this->fieldNamesOfTheFormPosting(page: $this->screen($screen), action: $action),
+            "{$screen} must carry the field its own middleware reads, or the action below is refused however right the password is",
+        );
+
+        return AdminStepUp::PASSWORD_FIELD;
+    }
+
+    /**
+     * The names of the inputs of one form of a rendered screen, scoped to that form: a field in the NEXT form on the page -- the role
+     * list's status switches sit on the role screen beside its create form -- is not this form's field.
+     *
+     * @return list<string>
+     */
+    private function fieldNamesOfTheFormPosting(string $page, string $action): array
+    {
+        $opening = '#<form[^>]*action="[^"]*' . preg_quote($action, '#') . '"[^>]*>#';
+
+        $this->assertSame(1, preg_match($opening, $page, $matched, PREG_OFFSET_CAPTURE), "the screen shows a form posting to {$action}");
+        $body = $this->upToTheEndOfTheForm(page: $page, from: $matched[0][1] + strlen((string) $matched[0][0]));
+        preg_match_all('#<input[^>]*\bname="([^"]+)"#', $body, $names);
+
+        return $names[1];
+    }
+
+    /**
+     * The form's own markup and no more. Cut with a plain search rather than with a `(?:(?!</form>).)*` pattern, which PCRE's JIT gives up
+     * on -- `preg_match` returns false, not 0 -- over a form the size of the role form's permission grid. Measured on this screen.
+     */
+    private function upToTheEndOfTheForm(string $page, int $from): string
+    {
+        $closing = strpos($page, '</form>', $from);
+
+        $this->assertNotFalse($closing, 'the form is closed');
+
+        return substr($page, $from, $closing - $from);
+    }
+
+    /** A proof lasts the window, so the pair that follows is asked again rather than carried by the proof of the pair before it. */
+    private function theProofGoesStale(): void
+    {
+        $this->travel(app(AdminStepUp::class)->minutes() + 1)->minutes();
+    }
+
+    private function screen(string $uri): string
+    {
+        return (string) $this->signedInAsTheAsker()->get($uri)->assertOk()->getContent();
     }
 
     private function employee(): object

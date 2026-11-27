@@ -261,6 +261,7 @@
                         </div>
                     </div>
                 </div>
+                <x-k.step-up id="employee-update" />
                 <div class="d-flex justify-content-end gap-3 mt-4">
                     <button type="reset" class="btn btn-secondary">{{translate('Reset')}}</button>
                     <button type="submit" class="btn btn-primary">{{translate('update')}}</button>
