@@ -436,7 +436,11 @@ trait BuildsApiAddressSchema
             $table->uuid('id')->primary();
             $table->string('payer_id')->nullable();
             $table->string('receiver_id')->nullable();
-            $table->decimal('payment_amount', 24, 2)->default(0);
+            // DECIMAL(40,20), as `2026_05_07_000001_update_all_decimal_columns_to_40_20` leaves it. Built at (24,2) this column
+            // ROUNDED a three-decimal dinar on its way in -- 12.505 BHD was stored as 12.51 -- so a refund test of a Kuwaiti,
+            // Bahraini or Omani payment measured the fixture and not the platform, and would have reported a lost minor unit the
+            // platform does not lose. ARefundAndAReplayFinishInTheirOwnCountryTest pins the scale for exactly that reason.
+            $table->decimal('payment_amount', 40, 20)->default(0);
             $table->string('gateway_callback_url')->nullable();
             $table->string('success_hook')->nullable();
             $table->string('failure_hook')->nullable();
