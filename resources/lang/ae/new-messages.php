@@ -15274,6 +15274,8 @@ return [
 	'hold_route_unsupported' => 'الوجهة خارج الخطوط التي يخدمها هذا الناقل.',
 	'this_coupon_has_been_fully_redeemed' => 'استُخدم هذا الكوبون بالكامل.',
 	'this_coupons_discount_budget_has_been_used_up' => 'استُنفدت ميزانية خصم هذا الكوبون.',
+	'discount_given_so_far' => 'الخصم الممنوح حتى الآن',
+	'times_redeemed' => 'عدد مرات الاستخدام',
 	'this_coupons_discount_is_more_than_the_items_it_applies_to' => 'خصم هذا الكوبون أكبر من قيمة العناصر التي ينطبق عليها، فلا يمكن استخدامه على هذه السلة.',
 	'shipping_destination_unknown' => 'بلد الوجهة غير معروف.',
 	'shipping_no_carrier_serves_this_route' => 'لا يوجد ناقل يخدم الخط إلى ذلك البلد.',

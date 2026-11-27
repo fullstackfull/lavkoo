@@ -70,6 +70,30 @@ return [
             'scoped' => filter_var(env('GCC_STAFF_MONEY_ACTIONS_SCOPED', false), FILTER_VALIDATE_BOOLEAN),
         ],
 
+        /*
+        | Putting the payment-GATEWAY SETTINGS screens inside the employee's country scope (D2-08).
+        |
+        | Off by default: the shared gateway page, the offline payment methods and the MTN Cash terminal actions are reached on the
+        | strength of the `3rd_party_setup` module alone, exactly as today -- every action's rule reads `none` and not one extra query is
+        | made.
+        |
+        | With it on, an employee the country scopes restrict is answered like for a page that does not exist. Not narrowed: REFUSED,
+        | because a gateway's configuration is one row of `addon_settings` for the whole installation -- its secret key, its integration
+        | id, its HMAC, its live-or-test mode -- and `payment_gateway_accounts` does not replace it while that feature ships off with an
+        | empty table and one gateway in its list. So a write here is a write to every market's merchant account at once, and its
+        | gentlest form (pointing a gateway at the sandbox, switching it off) stops the shop taking money in countries that employee has
+        | no standing in. A read is no better: the screens print the secret key and the webhook secret.
+        |
+        | It deliberately does NOT answer the owner's open question of whether a gateway belongs to a market at all (G1-13). A refusal
+        | needs no answer to that; a narrowing would. The same refusal already applies to the MyFatoorah settings screen, decided in
+        | slice 6 (`StaffIntegrationRoutes`), and to a hand-made wallet credit (`StaffOrderRoutes`).
+        |
+        | An employee the scopes do not restrict is unaffected either way, which is every employee while `country_scopes` is off.
+        */
+        'gateway_settings' => [
+            'scoped' => filter_var(env('GCC_STAFF_GATEWAY_SETTINGS_SCOPED', false), FILTER_VALIDATE_BOOLEAN),
+        ],
+
         'step_up' => [
             'enabled' => filter_var(env('GCC_ADMIN_STEP_UP', false), FILTER_VALIDATE_BOOLEAN),
             'minutes' => (int) env('GCC_ADMIN_STEP_UP_MINUTES', 10),
@@ -1113,6 +1137,34 @@ return [
         'what_a_payment_is_worth' => env(
             'GCC_WHAT_A_PAYMENT_IS_WORTH',
             App\Services\Payments\WhatAPaymentIsWorth::AS_TODAY,
+        ),
+
+        // Whether an amount handed to a gateway, and the confirmation that amount is checked against, are counted in the smallest coin
+        // the currency ACTUALLY has (D2-V1). A gateway is never told an amount in riyals: it is told an integer number of the currency's
+        // smallest coin, and every outbound amount on this platform multiplied by 100 -- the riyal's, the dirham's, the Qatari riyal's
+        // and the dollar's answer. `storefronts.currency.decimals` above says the Kuwaiti dinar, the Bahraini dinar and the Omani rial
+        // have THREE places (ISO 4217), so an order of 10.234 KWD was sent to Paymob as 1,023 fils: 1.023 dinars charged for a basket
+        // of 10.234, a tenth of what the shop sold.
+        //
+        // OFF as it ships, and off is the platform of today to the digit: `App\Services\Payments\CurrencyMinorUnit` answers 100 for
+        // every currency and produces the figure with PHP's own `round()`, so neither the value nor its type moves. SAR, AED and QAR
+        // are 100 whatever this says, because those currencies have two places -- Saudi Arabia, the United Arab Emirates and Qatar do
+        // not move either way.
+        //
+        // ONE switch for the charge AND the check, deliberately. `App\Services\Payments\GatewayConfirmations` asks whether the amount
+        // a gateway says it took is the payment's, and it asked by multiplying the stored amount by 100 as well. Charging 10,234 fils
+        // while checking against 1,023 would mean no three-decimal payment ever settled: money taken by the gateway with the order
+        // never placed, which is worse than the undercharge. So both read the one authority and both move in this one step.
+        //
+        // What it does NOT reach: `App\Services\MyFatoorah\Money` and the MyFatoorah initiation and verification paths that read it.
+        // That class is two-decimal by definition and decides whether a payment is ACCEPTED, where an answer wrong by a halala releases
+        // an order that was underpaid -- a larger money change than this one, with its own evidence to gather.
+        //
+        // A second gate stands in front of this one either way: `App\Services\Storefront\GatewayCurrencyPolicy` lets a three-decimal
+        // currency reach only a gateway named in `storefronts.currency.verified_three_decimal_gateways`, which is empty.
+        'amount_in_the_currencys_minor_unit' => filter_var(
+            env('GCC_PAYMENT_AMOUNT_IN_THE_CURRENCYS_MINOR_UNIT', false),
+            FILTER_VALIDATE_BOOLEAN,
         ),
 
         // WHICH PROVIDER SUPPORT HAS ACTUALLY BEEN CONFIRMED, per gateway, market, currency and method (D2-05).

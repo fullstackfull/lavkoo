@@ -78,7 +78,7 @@ final class StaffGovernanceInventory
         ],
         PaymentMethodController::class => [
             'class' => self::OUT, 'slice' => 'owner',
-            'reason' => 'The credentials of every payment gateway, in one global settings row each (`live_values`). A restricted employee with the third-party setup module reads and writes every market\'s. Whether a gateway belongs to a market at all is the owner\'s to say (G1-13); the gateway ACCOUNTS of GCC-06 are the per-market design, and this screen is the legacy global one.',
+            'reason' => 'The credentials of every payment gateway, in one global settings row each (`live_values`). A restricted employee with the third-party setup module reads and writes every market\'s. Whether a gateway belongs to a market at all is the owner\'s to say (G1-13); the gateway ACCOUNTS of GCC-06 are the per-market design, and this screen is the legacy global one. D2-08 has since built the REFUSAL, which needs no answer to G1-13 where a narrowing would: `App\\Services\\Staff\\StaffGatewayRoutes` gives every action of this screen the rule `unavailable` and `ScopeGatewaySettingsToStaffCountries` enforces it, behind `gcc.staff.gateway_settings.scoped`. The status here stays `out` because that switch ships OFF, so the screen a restricted employee reaches today is still every market\'s.',
         ],
         SMSModuleController::class => [
             'class' => self::OUT, 'slice' => 'owner',
