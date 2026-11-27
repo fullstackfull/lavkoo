@@ -3,10 +3,12 @@
 namespace App\Http\Controllers\RestAPI\v3\seller\auth;
 
 use App\Http\Controllers\Controller;
+use App\Http\Middleware\SellerApiAuthMiddleware;
 use App\Models\Product;
 use App\Models\Seller;
 use App\Models\SellerWallet;
 use App\Models\Shop;
+use App\Services\Marketplace\SellerTeamService;
 use App\Utils\Helpers;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -127,5 +129,28 @@ class LoginController extends Controller
                 'loginStatus' => 'unauthorized'
             ], 401);
         }
+    }
+
+    /**
+     * End the session this request is holding (K-12).
+     *
+     * A session on this API is nothing but the bearer token the row carries, so signing out has to
+     * take the token away on the SERVER: an app that forgets its own copy and nothing else leaves a
+     * live credential behind on a phone that has been sold, lent or stolen, and the token has no
+     * expiry to save it. The same controller mints it at login, which is why it is revoked here.
+     *
+     * The answer says nothing a client has to understand in words, deliberately: an app signs out
+     * by clearing its own store whatever the server says, and a message it would never show is a
+     * phrase in seven language files that nothing reads.
+     *
+     * Nothing else about the account changes. Replaying this request with the same token is answered
+     * 401 by {@see \App\Http\Middleware\SellerApiAuthMiddleware}, because the token no longer
+     * resolves to anybody -- which is the property being asked for, seen from the outside.
+     */
+    public function logout(Request $request, SellerTeamService $team): JsonResponse
+    {
+        $team->signOut(principal: $request->attributes->get(SellerApiAuthMiddleware::PRINCIPAL));
+
+        return response()->json(['signed_out' => true], 200);
     }
 }

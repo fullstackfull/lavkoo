@@ -8,6 +8,7 @@ use App\Http\Requests\Request;
 use App\Services\Address\AddressSchema;
 use App\Services\Address\NationalAddress;
 use App\Services\DigitalFileAddressService;
+use App\Services\Payments\GatewayCapabilityRegistry;
 use App\Services\Storefront\GatewayCurrencyPolicy;
 use App\Services\Storefront\StorefrontCatalog;
 use App\Services\Storefront\StorefrontContext;
@@ -360,11 +361,22 @@ $metaAppTracking = MetaAppIntegration::where('app_type', 'customer')
      *   - the currency is known, so `GatewayCurrencyPolicy` can be asked the same question the customer's checkout asks it at the moment a
      *     payment starts. That is where a method that cannot take this market's money is refused today -- after the customer has chosen
      *     it. A gateway with no currency list for this market, and a three-decimal market whose gateway nobody has verified, are both
-     *     absent here instead.
+     *     absent here instead;
+     *   - the MERCHANT half can be asked: whether this shop's account with that provider has actually been confirmed live in this market,
+     *     in this currency ({@see GatewayCapabilityRegistry}). A gateway's own currency list says what the gateway can do in general and
+     *     nothing about whether the merchant can collect in Kuwait, and the market's readiness check already asks exactly this question
+     *     ({@see \App\Services\Payments\StorefrontPaymentReadiness::anEligibleGateway}) -- so an app was being offered a method whose
+     *     provider nobody had confirmed for its market, which the platform already knew it could not take a payment through.
+     *
+     * The LEGAL ENTITY of the market is deliberately NOT asked here. A market whose gateway account is filed under another company's name
+     * is not a market that offers one method fewer: `AccountOfTheSellingCompany` reads it as having no account of its own, and the payment
+     * is then taken through the platform's own settings, which is what every market with no account at all does. Whether that configuration
+     * is legitimate is the owner's open decision (recorded on `PaymentBelongsToOrder` and in that service's own notes), and until it is
+     * answered there is no rule here to apply.
      *
      * While storefronts are off, and for the default storefront, this is the global list with the everywhere-rules applied -- the same
-     * list, because the currency policy refuses nothing when no storefront trades in its own money and a country rule of the one market
-     * there is was already an everywhere rule in effect.
+     * list, because the currency policy refuses nothing when no storefront trades in its own money, the capability registry refuses
+     * nothing while it is off, and a country rule of the one market there is was already an everywhere rule in effect.
      *
      * @param \Illuminate\Support\Collection $paymentMethods
      * @return \Illuminate\Support\Collection
@@ -372,6 +384,7 @@ $metaAppTracking = MetaAppIntegration::where('app_type', 'customer')
     private function paymentMethodsOfTheStorefront($paymentMethods)
     {
         $policy = app(GatewayCurrencyPolicy::class);
+        $capabilities = app(GatewayCapabilityRegistry::class);
         $currency = (string) (app(StorefrontCurrency::class)->currencyCodeInForce() ?? '');
 
         // StorefrontCatalog::country(), not StorefrontContext::current(): this route binds no storefront context, and the catalog's
@@ -383,6 +396,13 @@ $metaAppTracking = MetaAppIntegration::where('app_type', 'customer')
         return (new PaymentRoutingService())
             ->applyToModelsForStorefront($paymentMethods, $country)
             ->filter(static fn ($method): bool => $policy->accepts(gateway: (string) ($method->key_name ?? ''), currencyCode: $currency))
+            // The currency is passed only when this request knows one: a market whose own currency is not in force has nothing for the
+            // register to compare, and asking against an empty string would refuse every confirmed cell there is.
+            ->filter(static fn ($method): bool => $capabilities->confirms(
+                gateway: (string) ($method->key_name ?? ''),
+                country: (string) $country,
+                currency: $currency === '' ? null : $currency,
+            ))
             ->values();
     }
 

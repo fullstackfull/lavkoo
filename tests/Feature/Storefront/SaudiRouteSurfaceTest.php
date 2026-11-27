@@ -129,9 +129,12 @@ class SaudiRouteSurfaceTest extends TestCase
         // order endpoint here. It exposes the reason and nothing else: not the carrier, not the provider's error text.
         'GET api/v3/seller/orders/{id}/shipment-holds | (none)',
 
-        // The seller app's own two additions: the barcode sheet its till prints, and the screen that tells a signed-in seller who they are.
+        // The seller app's own three additions: the barcode sheet its till prints, the screen that tells a signed-in seller who they are,
+        // and the one way to give a credential back. Signing out had no address at all on main: the app forgot its own copy of the token
+        // and the token itself stayed live on the row, with no expiry, so a sold or stolen phone kept a working credential (K-12).
         'GET api/v3/seller/products/barcode/sheet | seller-barcode-sheet',
         'GET api/v3/seller/seller-center/security/me | (none)',
+        'POST api/v3/seller/auth/logout | (none)',
 
         // A blog draft is previewed through a route of its own rather than by publishing it.
         'GET admin/blog/draft-preview/{id} | admin.blog.draft-preview',
