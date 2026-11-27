@@ -38,6 +38,16 @@ try {
     $report['ok'] = false;
     $report['error'] = $exception::class;
     $report['message'] = mb_substr($exception->getMessage(), 0, 400);
+    // WHERE it threw, not only what it said. A worker that dies of `Undefined array key 0` is undiagnosable from the message alone, and
+    // these failures are intermittent -- `WalletCheckoutConcurrencyTest` lost a worker that way once in 125 concurrency tests on
+    // 2026-11-27 and three solo re-runs were green, so the next occurrence may be the only chance to read it. Only frames of this
+    // project are kept, because the vendor frames of a framework call are the same every time and would crowd out the line that matters.
+    $report['where'] = array_values(array_slice(array_filter(array_map(
+        static fn (array $frame): ?string => isset($frame['file'], $frame['line']) && !str_contains($frame['file'], '/vendor/')
+            ? str_replace(base_path() . '/', '', $frame['file']) . ':' . $frame['line']
+            : null,
+        $exception->getTrace(),
+    )), 0, 6));
 }
 $report['finished_at'] = microtime(true);
 
