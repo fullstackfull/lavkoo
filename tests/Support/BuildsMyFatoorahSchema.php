@@ -123,6 +123,8 @@ trait BuildsMyFatoorahSchema
             '2026_11_08_100005_add_hook_lease_to_myfatoorah_attempts.php',
             '2026_11_08_100006_add_hook_lease_token_to_myfatoorah_attempts.php',
             '2026_11_08_100007_add_live_slot_to_myfatoorah_attempts.php',
+            // The money columns carry a third decimal, so a fils refund is not rounded away by the column (D2-10).
+            '2026_12_15_100000_carry_three_decimals_on_myfatoorah_refund_money.php',
         ] as $file) {
             (require database_path('migrations/' . $file))->up();
         }

@@ -820,6 +820,31 @@ return [
             'GCC_CANCELLATION_REFUNDS_THE_WALLET',
             App\Services\Refund\WhenACancellationRefundsTheWallet::MANUAL_AS_TODAY,
         ),
+
+        // Whether a gateway refund is counted in the smallest coin its currency actually has (D2-10, owner's option A of 2026-11-26).
+        // `App\Services\MyFatoorah\RefundService` rounded every refund to two decimals and compared the headroom in whole halalas, which
+        // is the riyal's unit. `storefronts.currency.decimals` above says the Kuwaiti dinar, the Bahraini dinar and the Omani rial have
+        // THREE (ISO 4217), and MyFatoorah is a Kuwaiti gateway, so two measured defects were reachable rather than theoretical: a refund
+        // of 10.234 KWD was sent and stored as 10.23 -- four fils the customer is owed and does not get -- and a payment of 10.005 read as
+        // 10.01 of headroom, five fils MORE than was ever paid, so the platform could refund more than it took.
+        //
+        // OFF as it ships: every refund is rounded at two places and compared in halalas exactly as it always has been, the switch is read
+        // before anything else, and not one currency is looked up. With it on, the amount asked for and the headroom left are both taken
+        // DOWN to the currency's own places -- never up, because a cap that rounds up is not a cap -- and an amount equal to the headroom is
+        // still allowed while one coin more is refused. SAR, AED and QAR are two places whatever this says, because those currencies have
+        // two, so Saudi Arabia, the United Arab Emirates and Qatar do not move either way.
+        //
+        // The places come from `App\Services\Storefront\StorefrontCurrency::decimalsOf()`, the one authority on how many places a currency
+        // has and the same one the provider shipments, the Odoo postings and the wallet debit read.
+        //
+        // What this deliberately does NOT touch, which is the whole of the owner's option A: `App\Services\MyFatoorah\Money` and every
+        // payment VERIFICATION path keep the behaviour they have today. That class compares the amount that decides whether a payment is
+        // accepted, where an answer that is wrong by a halala releases an order that was underpaid -- a larger money change than this one,
+        // with its own evidence to gather.
+        'gateway_refunds_in_the_currencys_minor_unit' => filter_var(
+            env('GCC_GATEWAY_REFUNDS_IN_THE_CURRENCYS_MINOR_UNIT', false),
+            FILTER_VALIDATE_BOOLEAN,
+        ),
     ],
 
     /*

@@ -69,6 +69,13 @@ class GccMigrationsContractTest extends TestCase
             => 'widens the SCALE of five decimal columns (14,2 -> 14,3) so a fils amount is not rounded away on the way in, which a new '
             . 'column beside them could not do: the existing writers write these. Widening a decimal is lossless (12.34 becomes 12.340) '
             . 'and the migration re-runs: setScaleTo() reads the current scale and does nothing when it is already three',
+        '2026_12_15_100000_carry_three_decimals_on_myfatoorah_refund_money.php'
+            => 'the same shape as the entry above, for the three columns a gateway refund is computed from (24,2 -> 24,3): '
+            . 'myfatoorah_refunds.amount and the attempt\'s expected_amount and captured_amount, which are what the headroom is read '
+            . 'from. A column beside them could not do it either -- the existing writers write these -- and leaving the scale at two '
+            . 'would store a payment of 10.005 as 10.01 and hand the refund path a ceiling five fils above what was paid, which is the '
+            . 'over-refund D2-10 exists to prevent. Widening a decimal is lossless (150.00 becomes 150.000) and change() to the scale a '
+            . 'column already has is the same statement again, so the migration re-runs',
         '2026_12_23_100000_add_country_to_provider_credentials_and_cities.php'
             => 'replaces the key (provider, external_id) with (provider, country, external_id) so two countries may map their own city of '
             . 'that id. The wide key is added BEFORE the narrow one is dropped, so there is no window in which a city could be imported '
@@ -374,6 +381,18 @@ class GccMigrationsContractTest extends TestCase
                 }
                 // `timestamps()`, `softDeletes()` and `rememberToken()` are nullable by construction.
                 if (preg_match('/->\s*(timestamps|softDeletes|nullableTimestamps|rememberToken)\s*\(/', $statement) === 1) {
+                    continue;
+                }
+                // A `->change()` ADDS no column: it alters one that already exists, so the half-deployed window this rule exists to
+                // close cannot open -- a writer that supplied the value a second before the deploy still supplies it. Without this the
+                // scan reads `$table->decimal('amount', 24, 3)->change()` as a new NOT NULL column and a migration that only widens a
+                // decimal's scale has to be excused in NOT_NULL_WITHOUT_A_DEFAULT, which is meant to stay empty.
+                //
+                // Nothing is lost by skipping it, and that is the point: `narrowingStatements()` flags EVERY `->change()` as not
+                // expand-only, so a change() cannot reach this tree without a reasoned entry in NOT_EXPAND_ONLY. The dangerous case --
+                // a change() that makes an existing NULLABLE column NOT NULL, which the rows already there would refuse -- is caught
+                // and read there, by a human, rather than silently by a scan that cannot tell it from a widening.
+                if (preg_match('/->\s*change\s*\(\s*\)/', $statement) === 1) {
                     continue;
                 }
                 if (preg_match('/->\s*(nullable|default|useCurrent|useCurrentOnUpdate|generatedAs|storedAs|virtualAs)\s*\(/', $statement) !== 1) {

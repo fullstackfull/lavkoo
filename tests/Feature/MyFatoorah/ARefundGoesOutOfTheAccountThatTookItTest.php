@@ -7,6 +7,7 @@ use App\Models\MyFatoorahPaymentAttempt;
 use App\Models\MyFatoorahRefund;
 use App\Models\PaymentGatewayAccount;
 use App\Services\MyFatoorah\GatewayConfigRepository;
+use App\Services\MyFatoorah\RefundMoney;
 use App\Services\MyFatoorah\RefundService;
 use App\Services\Payments\GatewayAccountSecrets;
 use Illuminate\Support\Facades\DB;
@@ -199,29 +200,33 @@ class ARefundGoesOutOfTheAccountThatTookItTest extends CompanyAccountsTestCase
     }
 
     /**
-     * A FINDING, pinned rather than fixed: a three-decimal currency loses its last digit on this path.
+     * The finding this test used to PIN is now fixed, and this is the same world asserting the money arrives whole (D2-10, option A).
      *
-     * KWD, BHD and OMR have three decimal places and MyFatoorah is a Kuwaiti gateway, so this is reachable rather than theoretical.
-     * `RefundService::request()` does `round($amount, 2)` and stores `number_format($amount, 2)`, and the headroom is compared by
-     * {@see \App\Services\MyFatoorah\Money}, whose own docblock says it works "in whole halalas" because "SAR has two decimal places".
-     * So a refund of 10.234 KWD is sent and recorded as 10.23 -- four fils the customer is owed and does not get -- and a payment of
-     * 10.005 reads as 10.01 of headroom, which is five fils MORE than was paid.
+     * It read `test_a_three_decimal_refund_is_truncated_to_two_which_is_a_defect_and_not_the_behaviour_wanted` and asserted
+     * `assertSame('10.23', $refund->amount)` with the comment "four fils of a Kuwaiti customer's refund are rounded away", because
+     * `RefundService::request()` did `round($amount, 2)` and stored `number_format($amount, 2)`. KWD, BHD and OMR have three decimal places
+     * and MyFatoorah is a Kuwaiti gateway, so it was reachable rather than theoretical.
      *
-     * This is D2-10's own criterion ("amounts are stored and compared in each currency's minor unit") and it is not fixed here: the
-     * comparison class is shared with the payment VERIFICATION path, where an amount check deciding wrongly releases an underpaid order,
-     * so changing its scale is a money change of its own with its own evidence. Characterised and NOT endorsed.
+     * The owner approved option A on 2026-11-26: refunds get their own exact handling ({@see \App\Services\MyFatoorah\RefundMoney}) and
+     * {@see \App\Services\MyFatoorah\Money}, which decides whether a PAYMENT is accepted, keeps the behaviour it has today. The boundaries,
+     * the over-refund ceiling and the proof that verification did not move are in `ARefundIsExactInTheCurrencysMinorUnitTest`; what this
+     * one adds is that the exact figure survives the path D2-15 built -- out through the merchant account that took the payment.
      */
-    public function test_a_three_decimal_refund_is_truncated_to_two_which_is_a_defect_and_not_the_behaviour_wanted(): void
+    public function test_a_three_decimal_refund_keeps_its_third_decimal_through_the_account_that_took_the_payment(): void
     {
         $this->turnCompanyAccountsOn();
+        config([RefundMoney::EXACT_MINOR_UNIT_SWITCH => true]);
         $account = $this->anAccountWithAnApiKey(country: 'KW', apiKey: 'kuwait-merchant-key');
         $attempt = $this->aPaidAttemptStampedWith($account, capturedCurrency: 'KWD', expectedCurrency: 'KWD');
         $this->fakeRefundAccepted();
 
         $refund = app(RefundService::class)->request($attempt, 10.234)['refund'];
 
-        self::assertSame('10.23', $refund->amount, 'four fils of a Kuwaiti customer\'s refund are rounded away');
-        self::assertSame(10.23, $this->theOneRefundRequest()['Amount'], 'and the provider is asked for the truncated figure');
+        self::assertSame('10.234', $refund->amount, 'all four fils of a Kuwaiti customer\'s refund are recorded');
+
+        $sent = $this->theOneRefundRequest();
+        self::assertSame(10.234, $sent['Amount'], 'and the provider is asked for the whole figure');
+        self::assertSame('Bearer kuwait-merchant-key', $sent->header('Authorization')[0] ?? '', 'through the account that took it');
     }
 
     // ---- the world ---------------------------------------------------------------------------------------------------------------------
