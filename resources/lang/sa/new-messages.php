@@ -2212,6 +2212,8 @@ ____________________________________________________on_search_engines_and_see_th
 	'hold_route_unsupported' => 'الوجهة خارج الخطوط التي يخدمها هذا الناقل.',
 	'this_coupon_has_been_fully_redeemed' => 'استُخدم هذا الكوبون بالكامل.',
 	'this_coupons_discount_budget_has_been_used_up' => 'استُنفدت ميزانية خصم هذا الكوبون.',
+	'discount_given_so_far' => 'الخصم الممنوح حتى الآن',
+	'times_redeemed' => 'عدد مرات الاستخدام',
 	'this_coupons_discount_is_more_than_the_items_it_applies_to' => 'خصم هذا الكوبون أكبر من قيمة العناصر التي ينطبق عليها، فلا يمكن استخدامه على هذه السلة.',
 	'sorry_this_coupon_is_not_valid_for_this_user' => 'عذراً، هذا الكوبون غير صالح لهذا المستخدم',
 	'shipping_destination_unknown' => 'بلد الوجهة غير معروف.',

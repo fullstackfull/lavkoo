@@ -31,6 +31,18 @@
                 <span class="w-120 fw-normal">{{translate('expire_date')}}</span> :
                 <span id="expire_date">{{ \Carbon\Carbon::parse($coupon->expire_date)->format('dS M Y') }}</span>
             </div>
+            @if($spend ?? null)
+                <div class="coupon-info-item coupon-info-item d-flex gap-1 align-items-center flex-wrap" id="coupon_budget_spent_div">
+                    <span class="w-120 fw-normal">{{ translate('discount_given_so_far') }}</span> :
+                    <span id="coupon_budget_spent">{{ $spend['spent'] }} / {{ $spend['budget'] }}</span>
+                </div>
+                @if($spend['cap'])
+                    <div class="coupon-info-item coupon-info-item d-flex gap-1 align-items-center flex-wrap" id="coupon_uses_div">
+                        <span class="w-120 fw-normal">{{ translate('times_redeemed') }}</span> :
+                        <span id="coupon_uses">{{ $spend['uses'] }} / {{ $spend['cap'] }}</span>
+                    </div>
+                @endif
+            @endif
             <div class="coupon-info-item coupon-info-item d-flex gap-1 align-items-center flex-wrap">
                 <span class="w-120 fw-normal">{{translate('discount_bearer')}}</span> :
                 <span id="expire_date">

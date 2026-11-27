@@ -8689,6 +8689,8 @@ return [
 	'hold_route_unsupported' => 'The destination is outside the routes this carrier serves.',
 	'this_coupon_has_been_fully_redeemed' => 'This coupon has been fully redeemed.',
 	'this_coupons_discount_budget_has_been_used_up' => "This coupon's discount budget has been used up.",
+	'discount_given_so_far' => 'Discount given so far',
+	'times_redeemed' => 'Times redeemed',
 	'this_coupons_discount_is_more_than_the_items_it_applies_to' => "This coupon's discount is more than the items it applies to, so it cannot be used on this cart.",
 	'sorry_this_coupon_is_not_valid_for_this_user' => 'Sorry, this coupon is not valid for this user',
 	'your_cart_has_not_been_changed' => 'Your cart has not been changed',

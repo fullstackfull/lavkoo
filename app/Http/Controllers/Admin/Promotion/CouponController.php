@@ -10,6 +10,7 @@ use App\Http\Controllers\BaseController;
 use App\Http\Middleware\ScopeCouponsToStaffCountries;
 use App\Http\Requests\Admin\CouponAddRequest;
 use App\Http\Requests\Admin\CouponUpdateRequest;
+use App\Services\Coupon\CouponAllowance;
 use App\Services\CouponService;
 use App\Services\Storefront\CouponCountry;
 use Devrabiul\ToastMagic\Facades\ToastMagic;
@@ -179,11 +180,21 @@ class CouponController extends BaseController
         ]);
     }
 
+    /**
+     * The one screen that shows a coupon's spend against the budget it was given (I1-14).
+     *
+     * `CouponAllowance::spendOf()` answers null for every coupon while `gcc.coupons.limits.enabled` is off, for a coupon with no budget,
+     * and until the cap, budget and redemption migrations have run -- so the markup is byte for byte what it was in all three cases, which
+     * is every installation as this ships. It writes its own figures in the money of the coupon's own storefront, as every other amount on
+     * this screen does.
+     */
     public function quickView(Request $request): JsonResponse
     {
         $coupon = $this->couponRepo->getFirstWhere(params: ['id' => $request['id'], 'added_by' => 'admin']);
+        $spend = CouponAllowance::spendOf($coupon);
+
         return response()->json([
-            'view' => CouponCountry::inMoneyOf(coupon: $coupon, callback: fn (): string => view('admin-views.coupon.details-quick-view', ['coupon' => $coupon])->render()),
+            'view' => CouponCountry::inMoneyOf(coupon: $coupon, callback: fn (): string => view('admin-views.coupon.details-quick-view', ['coupon' => $coupon, 'spend' => $spend])->render()),
         ]);
     }
 
