@@ -108,6 +108,7 @@
                                                     {{ translate('it_will_be_permanently_deleted_from_your_database') }}
                                                 </div>
                                             </div>
+                                            <x-k.step-up id="clean-db" />
                                             <div class="d-flex justify-content-center gap-3">
                                                 <button type="{{ getDemoModeFormButton(type: 'button') }}"
                                                         class="btn btn-danger max-w-120 flex-grow-1 {{ getDemoModeFormButton(type: 'class') }}"

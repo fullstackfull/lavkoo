@@ -72,6 +72,11 @@ class AdminStepUpTest extends TestCase
         '/admin/custom-role/update/' . self::ORDINARY_ROLE => 'custom-role/update/' . self::ORDINARY_ROLE,
     ];
 
+    /** The screen of the one guarded form outside staff management, and the path it posts to. */
+    private const DATABASE_SCREEN = '/admin/system-setup/db-index';
+
+    private const DATABASE_ACTION = 'system-setup/db-clean';
+
     protected function setUp(): void
     {
         parent::setUp();
@@ -381,6 +386,39 @@ class AdminStepUpTest extends TestCase
                 "the form of {$screen} carries the field its own middleware reads, or the action is always refused",
             );
         }
+    }
+
+    /**
+     * The database-cleaning screen, which is the fourth form the guard protects and the only one outside staff management.
+     *
+     * It is tested apart from {@see self::FORMS} because its screen is not a staff screen: it lists the tables of whatever schema it is
+     * rendered against, so the form it shows has no field in common with the employee and role forms and the shared loop's "it really
+     * rendered its own form" assertion would have nothing to name.
+     *
+     * Off, the screen is the screen it is today -- the field reaches neither the form nor anywhere else on the page.
+     */
+    public function test_with_the_switch_off_the_database_cleaning_form_shows_no_password_field(): void
+    {
+        $this->assertFalse(app(AdminStepUp::class)->isRequired(), 'the step-up switch ships off');
+
+        $page = $this->screen(self::DATABASE_SCREEN);
+        $fields = $this->fieldNamesOfTheFormPosting(page: $page, action: self::DATABASE_ACTION);
+
+        $this->assertContains('tables[]', $fields, 'the screen really rendered the cleaning form');
+        $this->assertNotContains(AdminStepUp::PASSWORD_FIELD, $fields, 'the cleaning form must be the form it is today');
+        $this->assertStringNotContainsString(AdminStepUp::PASSWORD_FIELD, $page, 'nor may the field appear anywhere else on it');
+    }
+
+    /** On, the field is inside the form whose button it protects, which is the only place the guard can read it from. */
+    public function test_with_the_switch_on_the_database_cleaning_form_carries_the_field(): void
+    {
+        $this->switchItOn();
+
+        $this->assertContains(
+            AdminStepUp::PASSWORD_FIELD,
+            $this->fieldNamesOfTheFormPosting(page: $this->screen(self::DATABASE_SCREEN), action: self::DATABASE_ACTION),
+            'the cleaning form carries the field its own middleware reads, or emptying a table is always refused',
+        );
     }
 
     /**
